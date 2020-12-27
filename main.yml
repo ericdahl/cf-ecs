@@ -1,0 +1,140 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Parameters:
+  VpcTemplateUrl:
+    Type: String
+    Description: See https://github.com/ericdahl/cf-vpc
+
+Resources:
+
+  VPC:
+    Type: 'AWS::CloudFormation::Stack'
+    Properties:
+      Parameters:
+        CreateNatGateway: false
+      TemplateURL: !Ref VpcTemplateUrl
+
+  Cluster:
+    Type: 'AWS::ECS::Cluster'
+    Properties:
+      ClusterName: cf-ecs
+
+  HttpbinTaskDefinition:
+    Type: 'AWS::ECS::TaskDefinition'
+    Properties:
+      ContainerDefinitions:
+        - Name: httpbin
+          Image: nginx:latest
+          PortMappings:
+            - ContainerPort: 8080
+              Protocol: tcp
+      Cpu: 256
+      Memory: 512
+      Family: fargate-httpbin
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+
+  HttpbinLoadBalancerSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      VpcId:
+        Fn::GetAtt:
+          - VPC
+          - Outputs.VpcId
+      GroupName: httpbin
+      GroupDescription: httpbin load balancer
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+
+
+
+
+  HttpbinLoadBalancer:
+    Type: 'AWS::ElasticLoadBalancingV2::LoadBalancer'
+    Properties:
+      Name: httpbin
+      Type: application
+      Scheme: internet-facing
+      SecurityGroups:
+        - !Ref HttpbinLoadBalancerSecurityGroup
+      Subnets:
+        - !GetAtt VPC.Outputs.PublicSubnetA
+        - !GetAtt VPC.Outputs.PublicSubnetB
+
+
+  HttpbinLoadBalancerTargetGroup:
+    Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
+    Properties:
+      Name: httpbin
+      VpcId: !GetAtt VPC.Outputs.VpcId
+      Protocol: HTTP
+      TargetType: ip
+      Port: 8080
+
+  HttpbinLoadBalancerListener:
+    Type: 'AWS::ElasticLoadBalancingV2::Listener'
+    Properties:
+      LoadBalancerArn: !Ref HttpbinLoadBalancer
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref HttpbinLoadBalancerTargetGroup
+
+  HttpbinServiceSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      VpcId: !GetAtt VPC.Outputs.VpcId
+      GroupName: httpbin-service
+      GroupDescription: httpbin service
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          SourceSecurityGroupId: !Ref HttpbinLoadBalancerSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+
+
+  HttpbinService:
+    Type: 'AWS::ECS::Service'
+    Properties:
+      Cluster: !Ref Cluster
+      ServiceName: httpbin
+      DesiredCount: 3
+      EnableECSManagedTags: true
+      HealthCheckGracePeriodSeconds: 60
+      LaunchType: FARGATE
+      PropagateTags: SERVICE
+      TaskDefinition: !Ref HttpbinTaskDefinition
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          SecurityGroups:
+            - !Ref HttpbinServiceSecurityGroup
+          Subnets:
+            - !GetAtt VPC.Outputs.PrivateSubnetA
+            - !GetAtt VPC.Outputs.PrivateSubnetB
+      LoadBalancers:
+        - TargetGroupArn: !Ref HttpbinLoadBalancerTargetGroup
+          ContainerName: httpbin
+          ContainerPort: 8080
+
+
+#Outputs:
+#  PublicSubnet1:
+#    Value: !Ref PublicSubnetA
+
+
