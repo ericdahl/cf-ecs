@@ -11,7 +11,7 @@ Resources:
     Type: 'AWS::CloudFormation::Stack'
     Properties:
       Parameters:
-        CreateNatGateway: false
+        CreateNatGateway: true
       TemplateURL: !Ref VpcTemplateUrl
 
   Cluster:
@@ -24,7 +24,7 @@ Resources:
     Properties:
       ContainerDefinitions:
         - Name: httpbin
-          Image: nginx:latest
+          Image: ericdahl/httpbin:e249975
           PortMappings:
             - ContainerPort: 8080
               Protocol: tcp
@@ -55,9 +55,6 @@ Resources:
           ToPort: 65535
           CidrIp: 0.0.0.0/0
 
-
-
-
   HttpbinLoadBalancer:
     Type: 'AWS::ElasticLoadBalancingV2::LoadBalancer'
     Properties:
@@ -69,7 +66,6 @@ Resources:
       Subnets:
         - !GetAtt VPC.Outputs.PublicSubnetA
         - !GetAtt VPC.Outputs.PublicSubnetB
-
 
   HttpbinLoadBalancerTargetGroup:
     Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
@@ -107,7 +103,6 @@ Resources:
           ToPort: 65535
           CidrIp: 0.0.0.0/0
 
-
   HttpbinService:
     Type: 'AWS::ECS::Service'
     Properties:
@@ -132,9 +127,7 @@ Resources:
           ContainerName: httpbin
           ContainerPort: 8080
 
-
-#Outputs:
-#  PublicSubnet1:
-#    Value: !Ref PublicSubnetA
-
+Outputs:
+  HttpbinUrl:
+    Value: !GetAtt HttpbinLoadBalancer.DNSName
 
